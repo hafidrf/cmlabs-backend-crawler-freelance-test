@@ -4,26 +4,26 @@
     "host": "cmlabs.co",
     "title": "Professional and Reliable SEO Agency Indonesia - cmlabs",
     "status": "success",
-    "duration_ms": 5004,
-    "crawled_at_utc": "2026-04-06T08:39:46Z",
-    "html_file": "cmlabs.co-20260406t083946z.html"
+    "duration_ms": 5322,
+    "crawled_at_utc": "2026-04-06T09:01:03Z",
+    "html_file": "cmlabs.co-20260406t090103z.html"
   },
   {
     "url": "https://go.dev",
     "host": "go.dev",
     "title": "The Go Programming Language",
     "status": "success",
-    "duration_ms": 4739,
-    "crawled_at_utc": "2026-04-06T08:39:46Z",
-    "html_file": "go.dev-20260406t083946z.html"
+    "duration_ms": 5085,
+    "crawled_at_utc": "2026-04-06T09:01:07Z",
+    "html_file": "go.dev-20260406t090107z.html"
   },
   {
     "url": "https://sequence.day",
     "host": "sequence.day",
     "title": "Comprehensive Digital Solutions for Your Business | Sequence",
     "status": "success",
-    "duration_ms": 4791,
-    "crawled_at_utc": "2026-04-06T08:39:46Z",
-    "html_file": "sequence.day-20260406t083946z.html"
+    "duration_ms": 3949,
+    "crawled_at_utc": "2026-04-06T09:01:03Z",
+    "html_file": "sequence.day-20260406t090103z.html"
   }
 ]

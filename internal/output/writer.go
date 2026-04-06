@@ -3,8 +3,10 @@ package output
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -33,7 +35,8 @@ func (w *Writer) Write(results []crawler.Result) error {
 	for _, r := range results {
 		fileName := fileNameFor(r)
 		if r.HTML != "" {
-			if err := os.WriteFile(filepath.Join(w.outDir, fileName), []byte(r.HTML), 0o644); err != nil {
+			html := normalizeHTMLForLocalOpen(r.URL, r.HTML)
+			if err := os.WriteFile(filepath.Join(w.outDir, fileName), []byte(html), 0o644); err != nil {
 				return err
 			}
 		}
@@ -92,4 +95,56 @@ func sanitize(v string) string {
 		b.WriteRune('-')
 	}
 	return strings.Trim(b.String(), "-")
+}
+
+var (
+	relativeHrefRe = regexp.MustCompile(`href=(["'])(/[^"']*)(["'])`)
+	relativeSrcRe  = regexp.MustCompile(`src=(["'])(/[^"']*)(["'])`)
+)
+
+// normalizeHTMLForLocalOpen makes output HTML more faithful when opened via file://.
+func normalizeHTMLForLocalOpen(rawURL, html string) string {
+	if strings.TrimSpace(html) == "" {
+		return html
+	}
+
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return html
+	}
+
+	origin := u.Scheme + "://" + u.Host
+	base := origin + "/"
+
+	// Resolve root-relative assets so local file opening still fetches site CSS/JS/images.
+	html = replaceRootRelativeAttr(html, relativeHrefRe, "href", origin)
+	html = replaceRootRelativeAttr(html, relativeSrcRe, "src", origin)
+
+	if strings.Contains(html, "<head>") {
+		// Add base tag to resolve remaining relative references.
+		return strings.Replace(html, "<head>", "<head><base href=\""+base+"\">", 1)
+	}
+	if strings.Contains(html, "<HEAD>") {
+		return strings.Replace(html, "<HEAD>", "<HEAD><base href=\""+base+"\">", 1)
+	}
+	return html
+}
+
+func replaceRootRelativeAttr(input string, re *regexp.Regexp, attr, origin string) string {
+	return re.ReplaceAllStringFunc(input, func(m string) string {
+		parts := re.FindStringSubmatch(m)
+		if len(parts) != 4 {
+			return m
+		}
+		quote := parts[1]
+		path := parts[2]
+		closeQuote := parts[3]
+		if quote != closeQuote {
+			return m
+		}
+		if strings.HasPrefix(path, "//") {
+			return m
+		}
+		return attr + "=" + quote + origin + path + quote
+	})
 }
