@@ -109,17 +109,21 @@ func collectURLs(path string, args []string) ([]string, error) {
 		}
 	}
 
-	stdinInfo, err := os.Stdin.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if (stdinInfo.Mode() & os.ModeCharDevice) == 0 {
-		sc := bufio.NewScanner(os.Stdin)
-		for sc.Scan() {
-			add(sc.Text())
-		}
-		if err := sc.Err(); err != nil {
+	// Read stdin only when no args and no URL file are provided.
+	// This avoids blocking when the process is launched in non-interactive shells.
+	if len(args) == 0 && path == "" {
+		stdinInfo, err := os.Stdin.Stat()
+		if err != nil {
 			return nil, err
+		}
+		if (stdinInfo.Mode() & os.ModeCharDevice) == 0 {
+			sc := bufio.NewScanner(os.Stdin)
+			for sc.Scan() {
+				add(sc.Text())
+			}
+			if err := sc.Err(); err != nil {
+				return nil, err
+			}
 		}
 	}
 

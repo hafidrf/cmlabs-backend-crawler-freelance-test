@@ -100,6 +100,7 @@ func sanitize(v string) string {
 var (
 	relativeHrefRe = regexp.MustCompile(`href=(["'])(/[^"']*)(["'])`)
 	relativeSrcRe  = regexp.MustCompile(`src=(["'])(/[^"']*)(["'])`)
+	srcsetRe       = regexp.MustCompile(`srcset=(["'])([^"']*)(["'])`)
 )
 
 // normalizeHTMLForLocalOpen makes output HTML more faithful when opened via file://.
@@ -115,17 +116,19 @@ func normalizeHTMLForLocalOpen(rawURL, html string) string {
 
 	origin := u.Scheme + "://" + u.Host
 	base := origin + "/"
+	localFix := `<style id="crawler-local-fix">html,body{overflow:auto !important;overflow-y:auto !important;height:auto !important;max-height:none !important;scroll-behavior:auto !important;} body{position:static !important;touch-action:auto !important;} *{overscroll-behavior:auto !important;}</style><script id="crawler-local-fix-script">(function(){function unlock(){try{document.documentElement.style.overflow='auto';document.documentElement.style.overflowY='auto';document.documentElement.style.height='auto';document.body.style.overflow='auto';document.body.style.overflowY='auto';document.body.style.position='static';document.body.style.height='auto';var all=document.querySelectorAll('*');for(var i=0;i<all.length;i++){var el=all[i];if(!el||!el.style)continue;var of=el.style.overflow;var ofy=el.style.overflowY;if(of==='hidden')el.style.overflow='visible';if(ofy==='hidden')el.style.overflowY='visible';}}catch(e){}}function forceWheelScroll(e){try{if(e.defaultPrevented)e.preventDefault();var dy=e.deltaY||0;var dx=e.deltaX||0;window.scrollBy(dx,dy);var se=document.scrollingElement||document.documentElement;if(se&&Math.abs(dy)>0){se.scrollTop+=dy;}}catch(err){}}unlock();window.addEventListener('load',unlock);window.addEventListener('wheel',forceWheelScroll,{passive:false,capture:true});window.addEventListener('mousewheel',forceWheelScroll,{passive:false,capture:true});window.addEventListener('DOMMouseScroll',forceWheelScroll,{passive:false,capture:true});})();</script>`
 
 	// Resolve root-relative assets so local file opening still fetches site CSS/JS/images.
 	html = replaceRootRelativeAttr(html, relativeHrefRe, "href", origin)
 	html = replaceRootRelativeAttr(html, relativeSrcRe, "src", origin)
+	html = replaceRootRelativeSrcset(html, origin)
 
 	if strings.Contains(html, "<head>") {
 		// Add base tag to resolve remaining relative references.
-		return strings.Replace(html, "<head>", "<head><base href=\""+base+"\">", 1)
+		return strings.Replace(html, "<head>", "<head><base href=\""+base+"\">"+localFix, 1)
 	}
 	if strings.Contains(html, "<HEAD>") {
-		return strings.Replace(html, "<HEAD>", "<HEAD><base href=\""+base+"\">", 1)
+		return strings.Replace(html, "<HEAD>", "<HEAD><base href=\""+base+"\">"+localFix, 1)
 	}
 	return html
 }
@@ -146,5 +149,40 @@ func replaceRootRelativeAttr(input string, re *regexp.Regexp, attr, origin strin
 			return m
 		}
 		return attr + "=" + quote + origin + path + quote
+	})
+}
+
+func replaceRootRelativeSrcset(input, origin string) string {
+	return srcsetRe.ReplaceAllStringFunc(input, func(m string) string {
+		parts := srcsetRe.FindStringSubmatch(m)
+		if len(parts) != 4 {
+			return m
+		}
+		quote := parts[1]
+		set := parts[2]
+		closeQuote := parts[3]
+		if quote != closeQuote {
+			return m
+		}
+
+		items := strings.Split(set, ",")
+		for i, item := range items {
+			item = strings.TrimSpace(item)
+			if item == "" {
+				continue
+			}
+			pieces := strings.Fields(item)
+			if len(pieces) == 0 {
+				continue
+			}
+			if strings.HasPrefix(pieces[0], "/") && !strings.HasPrefix(pieces[0], "//") {
+				pieces[0] = origin + pieces[0]
+				items[i] = strings.Join(pieces, " ")
+			} else {
+				items[i] = item
+			}
+		}
+
+		return "srcset=" + quote + strings.Join(items, ", ") + quote
 	})
 }

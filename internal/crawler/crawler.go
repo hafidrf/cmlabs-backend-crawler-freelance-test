@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"net/url"
 	"sync"
@@ -114,7 +115,8 @@ func (c *Client) crawlOne(parent context.Context, rawURL string, workerID int) R
 	err = chromedp.Run(timeoutCtx,
 		chromedp.Navigate(rawURL),
 		chromedp.WaitReady("body", chromedp.ByQuery),
-		chromedp.Sleep(1200*time.Millisecond),
+		chromedp.Sleep(1500*time.Millisecond),
+		c.stabilizePage(),
 		chromedp.OuterHTML("html", &html, chromedp.ByQuery),
 		chromedp.Title(&title),
 	)
@@ -144,4 +146,69 @@ func (c *Client) jitter(workerID int) time.Duration {
 	r := rand.New(rand.NewSource(seed))
 	span := c.cfg.MaxDelay - c.cfg.MinDelay
 	return c.cfg.MinDelay + time.Duration(r.Int63n(int64(span)+1))
+}
+
+func (c *Client) stabilizePage() chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		actions := []chromedp.Action{
+			// Try lightweight popup dismissal (cookie/modal close buttons).
+			chromedp.Evaluate(`(() => {
+				const shouldClick = (el) => {
+					const txt = (el.textContent || '').trim().toLowerCase();
+					const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+					const cls = (el.className || '').toString().toLowerCase();
+					return txt === 'x' || txt === 'close' || txt === 'tutup' || txt === 'ok' || txt === 'accept' ||
+						aria.includes('close') || aria.includes('tutup') || cls.includes('close');
+				};
+				document.querySelectorAll('button,[role="button"],.btn-close,.close').forEach((el) => {
+					try { if (shouldClick(el)) el.click(); } catch (_) {}
+				});
+				return true;
+			})()`, nil),
+			// Promote common lazy-loading attributes so assets are fetched before snapshot.
+			chromedp.Evaluate(`(() => {
+				const attrs = ['data-src','data-lazy-src','data-original','data-url'];
+				const srcsetAttrs = ['data-srcset','data-lazy-srcset'];
+				document.querySelectorAll('img,source,iframe').forEach((el) => {
+					for (const a of attrs) {
+						const v = el.getAttribute(a);
+						const cur = el.getAttribute('src');
+						if (v && (!cur || cur === '' || cur.startsWith('data:'))) {
+							el.setAttribute('src', v);
+							break;
+						}
+					}
+					for (const a of srcsetAttrs) {
+						const v = el.getAttribute(a);
+						if (v && !el.getAttribute('srcset')) {
+							el.setAttribute('srcset', v);
+							break;
+						}
+					}
+					if (el.getAttribute('loading') === 'lazy') {
+						el.setAttribute('loading', 'eager');
+					}
+				});
+				return true;
+			})()`, nil),
+		}
+
+		if err := chromedp.Run(ctx, actions...); err != nil {
+			return fmt.Errorf("pre-stabilize actions failed: %w", err)
+		}
+
+		// Scroll down-up to trigger intersection/lazy observers.
+		for _, y := range []int{0, 1200, 2600, 5000, 0} {
+			js := fmt.Sprintf(`window.scrollTo(0, %d); true;`, y)
+			if err := chromedp.Run(ctx, chromedp.Evaluate(js, nil), chromedp.Sleep(500*time.Millisecond)); err != nil {
+				return fmt.Errorf("scroll stabilize failed: %w", err)
+			}
+		}
+
+		// Give images/scripts a bit more time to settle.
+		if err := chromedp.Run(ctx, chromedp.Sleep(1200*time.Millisecond)); err != nil {
+			return err
+		}
+		return nil
+	})
 }
